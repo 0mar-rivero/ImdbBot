@@ -28,12 +28,19 @@ static class InLineHandling {
 
 	public static async Task BotOnChosenInlineResultReceived(this ITelegramBotClient botClient,
 		ChosenInlineResult chosenInlineResult) {
-		if (chosenInlineResult.InlineMessageId is not null)
-			await botClient.EditMessageCaptionAsync(chosenInlineResult.InlineMessageId, await VideoMessageGenerator(chosenInlineResult.ResultId));
+		try {
+			if (chosenInlineResult.InlineMessageId is not null)
+				await botClient.EditMessageCaptionAsync(chosenInlineResult.InlineMessageId,
+					await VideoMessageGenerator(chosenInlineResult.ResultId),
+					replyMarkup: InlineKeyboardButton.WithUrl("IMDB", "https://www.imdb.com/title/" + chosenInlineResult.ResultId));
+		}
+		catch (Exception e) {
+			Console.WriteLine(e);
+		}
 	}
 
-	private static async Task<string> VideoMessageGenerator(string imdbID) {
-		var info = await GetInfo(imdbID);
+	private static async Task<string> VideoMessageGenerator(string imdbId) {
+		var info = await GetInfo(imdbId);
 		return $"{info.Title}•{info.Type}\n" +
 		       $"{info.Runtime} ⭐️ {info.imdbRating} IMBD\n\n" +
 		       $"Directors: {info.Director}\n" +
