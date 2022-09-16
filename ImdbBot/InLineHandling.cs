@@ -1,27 +1,24 @@
-﻿using System.Security.Authentication;
-using Imdb;
+﻿using Imdb;
 using Telegram.Bot;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.InlineQueryResults;
 using Telegram.Bot.Types.ReplyMarkups;
-using File = System.IO.File;
 using static Imdb.Tools;
 
 namespace ImdbBot;
 
-static class InLineHandling {
+internal static class InLineHandling {
+	private static Dictionary<(long UserId, string MessageId), bool> _alreadyEdited = new();
+
 	public static async Task BotOnInLineQueryReceived(this ITelegramBotClient bot, InlineQuery inlineQuery) {
 		if (inlineQuery.Query.Length < 2) return;
-		var results = new List<InlineQueryResult>();
-		var searchResults = (await Tools.Search(inlineQuery.Query)).Search ?? Array.Empty<SearchItem>();
-		foreach (var item in searchResults) {
-			results.Add(new InlineQueryResultArticle($"{item.imdbID}", item.Title,
-				new InputTextMessageContent(await VideoMessageGenerator(item))) {
-				Description = $"{item.Type} ({item.Year})",
-				ThumbUrl = item.Poster,
-				ReplyMarkup = InlineKeyboardButton.WithUrl("IMDB","https://www.imdb.com/title/"+item.imdbID)
-			});
-		}
+		var searchResults = (await Search(inlineQuery.Query)).Search;
+		var results = searchResults.Select(item =>
+			new InlineQueryResultArticle($"{item.imdbID}", item.Title, new InputTextMessageContent("...searching...")) {
+				Description = $"{item.Type} ({item.Year})", ThumbUrl = item.Poster,
+				ReplyMarkup = InlineKeyboardButton.WithUrl("IMDB", "https://www.imdb.com/title/" + item.imdbID)
+			}).Cast<InlineQueryResult>().ToList();
 
 		await bot.AnswerInlineQueryAsync(inlineQuery.Id, results);
 	}
@@ -29,25 +26,19 @@ static class InLineHandling {
 	public static async Task BotOnChosenInlineResultReceived(this ITelegramBotClient botClient,
 		ChosenInlineResult chosenInlineResult) {
 		try {
-			if (chosenInlineResult.InlineMessageId is not null)
-				await botClient.EditMessageCaptionAsync(chosenInlineResult.InlineMessageId,
-					await VideoMessageGenerator(chosenInlineResult.ResultId),
-					replyMarkup: InlineKeyboardButton.WithUrl("IMDB", "https://www.imdb.com/title/" + chosenInlineResult.ResultId));
+			if (chosenInlineResult.InlineMessageId is null ||
+			    _alreadyEdited.ContainsKey((chosenInlineResult.From.Id, chosenInlineResult.InlineMessageId))) return;
+			_alreadyEdited[(chosenInlineResult.From.Id, chosenInlineResult.InlineMessageId)] = true;
+			var info = await GetInfo(chosenInlineResult.ResultId);
+
+			await botClient.EditMessageCaptionAsync(chosenInlineResult.InlineMessageId,
+				InfoText(info), ParseMode.Markdown,
+				replyMarkup: InlineKeyboardButton.WithUrl("IMDB",
+					"https://www.imdb.com/title/" + chosenInlineResult.ResultId));
 		}
+
 		catch (Exception e) {
 			Console.WriteLine(e);
 		}
 	}
-
-	private static async Task<string> VideoMessageGenerator(string imdbId) {
-		var info = await GetInfo(imdbId);
-		return $"{info.Title}•{info.Type}\n" +
-		       $"{info.Runtime} ⭐️ {info.imdbRating} IMBD\n\n" +
-		       $"Directors: {info.Director}\n" +
-		       $"Actors: {info.Actors}\n\n" +
-		       $"Genres: {info.Genre}\n" +
-		       $"{info.Plot}";
-	}
-
-	private static async Task<string> VideoMessageGenerator(SearchItem item) => await VideoMessageGenerator(item.imdbID);
 }
